@@ -10,21 +10,24 @@ from torch.utils.data import DataLoader
 from nets.unet import Unet
 from nets.unet_training import get_lr_scheduler, set_optimizer_lr, weights_init
 from utils.callbacks import LossHistory
-from utils.dataloader import UnetDataset, unet_dataset_collate
+from utils.dataloader_medical import UnetDataset, unet_dataset_collate
 from utils.utils import download_weights
-from utils.utils_fit import fit_one_epoch
+from utils.utils_fit import fit_one_epoch_no_val
 
 '''
 训练自己的语义分割模型一定需要注意以下几点：
-1、训练前仔细检查自己的格式是否满足要求，该库要求数据集格式为VOC格式，需要准备好的内容有输入图片和标签
-   输入图片为.jpg图片，无需固定大小，传入训练前会自动进行resize。
-   灰度图会自动转成RGB图片进行训练，无需自己修改。
-   输入图片如果后缀非jpg，需要自己批量转成jpg后再开始训练。
+1、该数据集是我根据网上找到的医药数据集特殊建立的训练文件，只是一个例子，用于展示数据集不是voc格式时要如何进行训练。
+   
+   不可以计算miou等性能指标。只用于观看医药数据集的训练效果。
+   不可以计算miou等性能指标。
+   不可以计算miou等性能指标。
 
-   标签为png图片，无需固定大小，传入训练前会自动进行resize。
-   由于许多同学的数据集是网络上下载的，标签格式并不符合，需要再度处理。一定要注意！标签的每个像素点的值就是这个像素点所属的种类。
-   网上常见的数据集总共对输入图片分两类，背景的像素点值为0，目标的像素点值为255。这样的数据集可以正常运行但是预测是没有效果的！
-   需要改成，背景的像素点值为0，目标的像素点值为1。
+   如果大家有自己的医药数据集需要训练，可以分为两种情况：
+   a、没有标签的医药数据集：
+      请按照视频里面的数据集标注教程，首先利用labelme标注图片，转换成VOC格式后利用train.py进行训练。
+   b、有标签的医药数据集：
+      将文件的标签格式进行转换，标签的每个像素点的值就是这个像素点所属的种类。
+      因此数据集的标签需要改成，背景的像素点值为0，目标的像素点值为1。
 
 2、训练好的权值文件保存在logs文件夹中，每个epoch都会保存一次，如果只是训练了几个step是不会保存的，epoch和step的概念要捋清楚一下。
    在训练过程中，该代码并没有设定只保存最低损失的，因此按默认参数训练完会有100个权值，如果空间不够可以自行删除。
@@ -50,10 +53,10 @@ if __name__ == "__main__":
     #                   Windows系统下默认使用DP模式调用所有显卡，不支持DDP。
     #   DP模式：
     #       设置            distributed = False
-    #       在终端中输入    CUDA_VISIBLE_DEVICES=0,1 python train.py
+    #       在终端中输入    CUDA_VISIBLE_DEVICES=0,1 python train_medical.py
     #   DDP模式：
     #       设置            distributed = True
-    #       在终端中输入    CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 train.py
+    #       在终端中输入    CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 train_medical.py
     #---------------------------------------------------------------------#
     distributed     = False
     #---------------------------------------------------------------------#
@@ -69,7 +72,7 @@ if __name__ == "__main__":
     #   num_classes     训练自己的数据集必须要修改的
     #                   自己需要的分类个数+1，如2+1
     #-----------------------------------------------------#
-    num_classes = 21
+    num_classes = 2
     #-----------------------------------------------------#
     #   主干网络选择
     #   vgg
@@ -82,7 +85,7 @@ if __name__ == "__main__":
     #                   如果不设置model_path，pretrained = True，此时仅加载主干开始训练。
     #                   如果不设置model_path，pretrained = False，Freeze_Train = Fasle，此时从0开始训练，且没有冻结主干的过程。
     #----------------------------------------------------------------------------------------------------------------------------#
-    pretrained  = False
+    pretrained  = True
     #----------------------------------------------------------------------------------------------------------------------------#
     #   权值文件的下载请看README，可以通过网盘下载。模型的 预训练权重 对不同数据集是通用的，因为特征是通用的。
     #   模型的 预训练权重 比较重要的部分是 主干特征提取网络的权值部分，用于进行特征提取。
@@ -101,7 +104,7 @@ if __name__ == "__main__":
     #   一般来讲，网络从0开始的训练效果会很差，因为权值太过随机，特征提取效果不明显，因此非常、非常、非常不建议大家从0开始训练！
     #   如果一定要从0开始，可以了解imagenet数据集，首先训练分类模型，获得网络的主干部分权值，分类模型的 主干部分 和该模型通用，基于此进行训练。
     #----------------------------------------------------------------------------------------------------------------------------#
-    model_path  = "model_data/unet_vgg_voc.pth"
+    model_path  = ""
     #-----------------------------------------------------#
     #   input_shape     输入图片的大小，32的倍数
     #-----------------------------------------------------#
@@ -151,7 +154,7 @@ if __name__ == "__main__":
     #------------------------------------------------------------------#
     Init_Epoch          = 0
     Freeze_Epoch        = 50
-    Freeze_batch_size   = 16
+    Freeze_batch_size   = 2
     #------------------------------------------------------------------#
     #   解冻阶段训练参数
     #   此时模型的主干不被冻结了，特征提取网络会发生改变
@@ -160,7 +163,7 @@ if __name__ == "__main__":
     #   Unfreeze_batch_size     模型在解冻后的batch_size
     #------------------------------------------------------------------#
     UnFreeze_Epoch      = 100
-    Unfreeze_batch_size = 16
+    Unfreeze_batch_size = 2
     #------------------------------------------------------------------#
     #   Freeze_Train    是否进行冻结训练
     #                   默认先冻结主干训练后解冻训练。
@@ -200,19 +203,19 @@ if __name__ == "__main__":
     #------------------------------------------------------------------#
     #   save_dir        权值与日志文件保存的文件夹
     #------------------------------------------------------------------#
-    save_dir            = './unet-pytorch/logs'
+    save_dir            = 'logs'
     
     #------------------------------#
     #   数据集路径
     #------------------------------#
-    VOCdevkit_path  = '../input/weensegmentation/unet-pytorch-main/VOCdevkit'
+    VOCdevkit_path  = 'Medical_Datasets'
     #------------------------------------------------------------------#
     #   建议选项：
     #   种类少（几类）时，设置为True
     #   种类多（十几类）时，如果batch_size比较大（10以上），那么设置为True
     #   种类多（十几类）时，如果batch_size比较小（10以下），那么设置为False
     #------------------------------------------------------------------#
-    dice_loss       = True
+    dice_loss       = False
     #------------------------------------------------------------------#
     #   是否使用focal loss来防止正负样本不平衡
     #------------------------------------------------------------------#
@@ -273,7 +276,7 @@ if __name__ == "__main__":
         model.load_state_dict(model_dict)
 
     if local_rank == 0:
-        loss_history = LossHistory(save_dir, model, input_shape=input_shape)
+        loss_history = LossHistory(save_dir, model, input_shape=input_shape, val_loss_flag = False)
     else:
         loss_history = None
         
@@ -311,13 +314,10 @@ if __name__ == "__main__":
     #---------------------------#
     #   读取数据集对应的txt
     #---------------------------#
-    with open(os.path.join(VOCdevkit_path, "VOC2007/ImageSets/Segmentation/train.txt"),"r") as f:
+    with open(os.path.join(VOCdevkit_path, "ImageSets/Segmentation/train.txt"),"r") as f:
         train_lines = f.readlines()
-    with open(os.path.join(VOCdevkit_path, "VOC2007/ImageSets/Segmentation/val.txt"),"r") as f:
-        val_lines = f.readlines()
-    num_train   = len(train_lines)
-    num_val     = len(val_lines)
         
+    num_train   = len(train_lines)
     #------------------------------------------------------#
     #   主干特征提取网络特征通用，冻结训练可以加快训练速度
     #   也可以在训练初期防止权值被破坏。
@@ -333,7 +333,7 @@ if __name__ == "__main__":
         #------------------------------------#
         if Freeze_Train:
             model.freeze_backbone()
-            
+                
         #-------------------------------------------------------------------#
         #   如果不冻结训练的话，直接设置batch_size为Unfreeze_batch_size
         #-------------------------------------------------------------------#
@@ -365,28 +365,22 @@ if __name__ == "__main__":
         #   判断每一个世代的长度
         #---------------------------------------#
         epoch_step      = num_train // batch_size
-        epoch_step_val  = num_val // batch_size
         
-        if epoch_step == 0 or epoch_step_val == 0:
+        if epoch_step == 0:
             raise ValueError("数据集过小，无法继续进行训练，请扩充数据集。")
 
         train_dataset   = UnetDataset(train_lines, input_shape, num_classes, True, VOCdevkit_path)
-        val_dataset     = UnetDataset(val_lines, input_shape, num_classes, False, VOCdevkit_path)
         
         if distributed:
             train_sampler   = torch.utils.data.distributed.DistributedSampler(train_dataset, shuffle=True,)
-            val_sampler     = torch.utils.data.distributed.DistributedSampler(val_dataset, shuffle=False,)
             batch_size      = batch_size // ngpus_per_node
             shuffle         = False
         else:
             train_sampler   = None
-            val_sampler     = None
             shuffle         = True
-
+            
         gen             = DataLoader(train_dataset, shuffle = shuffle, batch_size = batch_size, num_workers = num_workers, pin_memory=True,
                                     drop_last = True, collate_fn = unet_dataset_collate, sampler=train_sampler)
-        gen_val         = DataLoader(val_dataset  , shuffle = shuffle, batch_size = batch_size, num_workers = num_workers, pin_memory=True, 
-                                    drop_last = True, collate_fn = unet_dataset_collate, sampler=val_sampler)
 
         #---------------------------------------#
         #   开始模型训练
@@ -415,9 +409,8 @@ if __name__ == "__main__":
                 model.unfreeze_backbone()
                             
                 epoch_step      = num_train // batch_size
-                epoch_step_val  = num_val // batch_size
 
-                if epoch_step == 0 or epoch_step_val == 0:
+                if epoch_step == 0:
                     raise ValueError("数据集过小，无法继续进行训练，请扩充数据集。")
 
                 if distributed:
@@ -425,8 +418,6 @@ if __name__ == "__main__":
 
                 gen             = DataLoader(train_dataset, shuffle = shuffle, batch_size = batch_size, num_workers = num_workers, pin_memory=True,
                                             drop_last = True, collate_fn = unet_dataset_collate, sampler=train_sampler)
-                gen_val         = DataLoader(val_dataset  , shuffle = shuffle, batch_size = batch_size, num_workers = num_workers, pin_memory=True, 
-                                            drop_last = True, collate_fn = unet_dataset_collate, sampler=val_sampler)
 
                 UnFreeze_flag = True
 
@@ -435,8 +426,7 @@ if __name__ == "__main__":
 
             set_optimizer_lr(optimizer, lr_scheduler_func, epoch)
 
-            fit_one_epoch(model_train, model, loss_history, optimizer, epoch, 
-                    epoch_step, epoch_step_val, gen, gen_val, UnFreeze_Epoch, Cuda, dice_loss, focal_loss, cls_weights, num_classes, fp16, scaler, save_period, save_dir, local_rank)
-
+            fit_one_epoch_no_val(model_train, model, loss_history, optimizer, epoch, epoch_step, gen, UnFreeze_Epoch, Cuda, dice_loss, focal_loss, cls_weights, num_classes, fp16, scaler, save_period, save_dir, local_rank)
+            
         if local_rank == 0:
             loss_history.writer.close()
